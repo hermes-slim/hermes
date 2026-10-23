@@ -1,5 +1,6 @@
 """Nous Portal provider profile."""
 
+import os
 from typing import Any
 
 from agent.portal_tags import get_affinity_scope, get_conversation_context, nous_portal_tags
@@ -73,6 +74,8 @@ nous = NousProfile(
     display_name="Nous Research", description="Nous Research — Hermes model family",
     signup_url="https://nousresearch.com/", fallback_models=("hermes-3-405b", "hermes-3-70b"),
     base_url="https://inference-api.nousresearch.com/v1", auth_type="oauth_device_code",
+    # hermes-slim: keep Nous resolvable by name but out of every picker.
+    hidden=bool(os.environ.get("HERMES_SLIM")),
 )
 
 register_provider(nous)

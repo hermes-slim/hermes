@@ -1,0 +1,42 @@
+name: slim-upstream-sync
+
+# Mirror NousResearch/hermes-agent@main onto our `upstream` branch, then open
+# (or refresh) a PR merging `upstream` into `main`. slim-bundle runs on that PR.
+#
+# Needs secret SYNC_TOKEN: a token with `repo` + `workflow` scope. GITHUB_TOKEN
+# cannot push commits that touch .github/workflows, and upstream's do.
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: upstream
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+      - name: Fast-forward upstream
+        run: |
+          git remote add nous https://github.com/NousResearch/hermes-agent
+          git fetch --quiet nous main
+          git merge --ff-only nous/main
+          git push origin HEAD:upstream
+      - name: Open sync PR
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          git fetch --quiet origin main
+          if [ "$(git rev-list --count origin/main..HEAD)" = 0 ]; then echo "main is up to date"; exit 0; fi
+          if [ -z "$(gh pr list --head upstream --base main --json number --jq '.[0].number')" ]; then
+            gh pr create --head upstream --base main --title "Sync upstream $(date -u +%F)" \
+              --body "Merges NousResearch/hermes-agent@main ($(git rev-parse --short HEAD)) into main. Merge with a merge commit, not squash, so the next sync stays incremental."
+          fi

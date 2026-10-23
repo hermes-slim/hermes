@@ -1,0 +1,95 @@
+name: slim-bundle
+
+# Build the hermes-slim bundle natively on every target, then install and
+# smoke-test it the way a client would (slim/smoke_test.py). Tags v* publish
+# the bundles as a GitHub release.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: slim-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s slim/tests -v
+
+  bundle:
+    needs: unit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            os: windows-latest
+          - target: darwin-x64
+            os: macos-15-intel
+          - target: darwin-arm64
+            os: macos-latest
+          - target: linux-x64-musl
+            os: ubuntu-latest
+            container: alpine:3.22
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - name: Alpine prerequisites
+        if: matrix.container
+        shell: sh
+        run: apk add --no-cache bash python3 git github-cli tar
+      - uses: actions/checkout@v4
+      - name: Host python
+        id: py
+        run: |
+          for c in python3 python; do
+            if command -v $c >/dev/null && $c -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then echo "bin=$c" >> "$GITHUB_OUTPUT"; break; fi
+          done
+      - name: Fetch hermes-slim/wheels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p wheels
+          gh release download latest -R hermes-slim/wheels -D wheels --pattern '*.whl' || echo "no extra wheels"
+          ls -l wheels
+      - name: Build bundle
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          ${{ steps.py.outputs.bin }} slim/build_bundle.py --target ${{ matrix.target }} --wheels wheels --out dist --work "$RUNNER_TEMP/hs-work"
+      - name: Smoke test
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: ${{ steps.py.outputs.bin }} slim/smoke_test.py "$(ls dist/hermes-slim-*-${{ matrix.target }}.zip dist/hermes-slim-*-${{ matrix.target }}.tar.gz 2>/dev/null | head -1)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hermes-slim-${{ matrix.target }}
+          path: dist/
+          retention-days: 3
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" -R "${{ github.repository }}" --generate-notes dist/*

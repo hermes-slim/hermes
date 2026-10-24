@@ -113,5 +113,5 @@ Upstream's own workflows are disabled in this fork via the Actions API
 ## Known gaps
 - Bundles are unsigned. install.sh clears the macOS quarantine flag; Windows SmartScreen may still warn.
   Code signing (Apple Developer ID, Windows cert) is the real fix.
-- The service started by launchd/systemd does not inherit `HERMES_SLIM`, so Nous could reappear in
-  pickers reached through the gateway. Follow-up: pass it in the service environment.
+- `HERMES_SLIM=1` is also written to `~/.hermes/.env`, which Hermes loads before provider plugins, so
+  service-started gateways hide Nous too.

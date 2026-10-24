@@ -88,7 +88,16 @@ def main() -> int:
     cfg = (home / "config.yaml").read_text()
     for needle in ("provider: openrouter", "deepseek/deepseek-v4.1-flash", "https://openrouter.ai/api/v1"):
         assert needle in cfg, f"{needle!r} missing from config.yaml"
-    assert "OPENROUTER_API_KEY=" in (home / ".env").read_text()
+    dotenv = (home / ".env").read_text()
+    assert "OPENROUTER_API_KEY=" in dotenv and "HERMES_SLIM=1" in dotenv, dotenv
+
+    step("Nous hidden from provider pickers")
+    listed = subprocess.run(
+        [py, "-c", "from hermes_cli.models_catalog_static import listed_canonical_providers as l; "
+                   "print(','.join(getattr(p, 'slug', None) or getattr(p, 'name', None) or str(p) for p in l()))"],
+        env=dict(env, PYTHONPATH=str(bundle / "app"), HERMES_SLIM="1"), capture_output=True, text=True, check=True).stdout
+    print(listed)
+    assert "openrouter" in listed and "nous" not in listed.split(","), listed
 
     if real_key:
         step("live model round-trip")

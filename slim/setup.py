@@ -124,6 +124,9 @@ def write_config(first: str, last: str, key: str, model: str, api_port: int) -> 
         hc.save_env_value("API_SERVER_KEY", secrets.token_hex(24))
     hc.save_env_value("API_SERVER_HOST", "127.0.0.1")
     hc.save_env_value("API_SERVER_PORT", str(api_port))
+    # Hermes loads .env into the environment before provider plugins, so this keeps
+    # Nous hidden in processes the launchers don't start (launchd/systemd/task gateway).
+    hc.save_env_value("HERMES_SLIM", "1")
 
     cfg = hc.load_config()
     m = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}

@@ -2,7 +2,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File install.ps1 [-Version vX.Y.Z] [-Dir $env:LOCALAPPDATA\hermes-slim] [-- <setup args>]
 #
-# Downloads one prebuilt bundle from github.com/hermes-slim/hermes releases,
+# Downloads one prebuilt bundle from github.com/talos-hq/hermes-slim releases,
 # verifies its sha256, unpacks it, and runs hermes-slim-setup. Nothing is
 # compiled and no package manager runs.
 param(
@@ -12,7 +12,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$repo = "hermes-slim/hermes"
+$repo = "talos-hq/hermes-slim"
 $target = "win32-x64"
 
 $api = if ($Version -eq "latest") { "https://api.github.com/repos/$repo/releases/latest" } else { "https://api.github.com/repos/$repo/releases/tags/$Version" }

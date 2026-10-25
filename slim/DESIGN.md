@@ -7,7 +7,7 @@ Portal/login/model surfaces, and brings the gateway up as part of startup.
 Telegram bot provisioning comes in a later phase.
 
 ## Repos (org: github.com/hermes-slim)
-- `hermes-slim/hermes` — fork of `NousResearch/hermes-agent`.
+- `talos-hq/hermes-slim` — fork of `NousResearch/hermes-agent`.
   - `upstream` branch: exact mirror of `NousResearch/hermes-agent@main`. Never edited.
   - `main` branch: `upstream` + our patches. All our code lives under `slim/`
     and `.github/workflows/slim-*.yml`; upstream files are touched only by small,
@@ -105,7 +105,7 @@ Upstream's own workflows are disabled in this fork via the Actions API
 (`gh workflow disable`), which survives merges without editing their files.
 
 ## Install entry points
-- macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/hermes-slim/hermes/main/slim/install.sh | sh`
+- macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/talos-hq/hermes-slim/main/slim/install.sh | sh`
   (or download and run it) — picks the target, verifies sha256, unpacks to `~/.hermes-slim/current`,
   links `hermes` into `~/.local/bin`, runs setup with `--service`.
 - Windows: `slim/install.ps1` — same, into `%LOCALAPPDATA%\\hermes-slim`, adds `bin` to the user PATH.

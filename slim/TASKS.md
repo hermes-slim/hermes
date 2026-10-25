@@ -1,7 +1,7 @@
 # hermes-slim task list
 
 ## Phase 1: install + gateway
-- [x] Org `hermes-slim`, fork `hermes-slim/hermes`, `upstream` branch mirroring NousResearch main
+- [x] Org `hermes-slim` (wheels), fork `talos-hq/hermes-slim` (moved from hermes-slim/hermes), `upstream` branch mirroring NousResearch main
 - [x] Repo `hermes-slim/wheels` + cryptography 50.0.2 macOS x86_64 wheel job (static OpenSSL)
 - [x] `slim/build_bundle.py`: relocatable CPython + locked deps (`--no-build`) + source + launchers
 - [x] `slim/setup.py`: TUI prompts / flags / env vars, validation, OpenRouter + DeepSeek autofill, gateway health

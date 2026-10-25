@@ -3,12 +3,12 @@
 #
 #   sh install.sh [--version vX.Y.Z] [--dir ~/.hermes-slim] [-- <hermes-slim-setup args>]
 #
-# Downloads one prebuilt bundle from github.com/hermes-slim/hermes releases,
+# Downloads one prebuilt bundle from github.com/talos-hq/hermes-slim releases,
 # verifies its sha256, unpacks it, and runs hermes-slim-setup. Nothing is
 # compiled and no package manager runs.
 set -eu
 
-repo="hermes-slim/hermes"
+repo="talos-hq/hermes-slim"
 version="latest"
 dir="${HERMES_SLIM_DIR:-$HOME/.hermes-slim}"
 while [ $# -gt 0 ]; do

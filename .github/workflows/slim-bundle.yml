@@ -61,7 +61,10 @@ jobs:
         run: apk add --no-cache bash python3 git github-cli tar zstd build-base curl
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # build_bundle.py stamps the version from `git describe`
+          # build_bundle.py stamps the version from `git describe`: it needs every commit and
+          # tag, not every blob (a full clone of this fork stalled the alpine job for 15+ min).
+          fetch-depth: 0
+          filter: blob:none
       - name: Host python
         id: py
         run: |

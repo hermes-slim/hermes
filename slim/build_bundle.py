@@ -44,7 +44,9 @@ APP_EXCLUDE = {
 # Stdlib parts Hermes never imports: its own test suite, IDLE, Tk and the pip bootstrapper.
 STDLIB_PRUNE = ("test", "idlelib", "tkinter", "turtledemo", "turtle.py", "ensurepip", "__phello__")
 # Tcl/Tk payload that only _tkinter loads (lib/ on Unix, the interpreter root on Windows).
-TK_GLOBS = ("tcl*", "tk*", "libtcl*", "libtk*", "itcl*", "thread*", "_tkinter*", "tcl*.dll", "tk*.dll")
+# Versioned names only: on Windows python/lib *is* the stdlib (case-insensitive), where a bare
+# "thread*" took threading.py with it.
+TK_GLOBS = ("tcl[0-9]*", "tk[0-9]*", "libtcl*", "libtk*", "itcl[0-9]*", "thread[0-9]*", "_tkinter*")
 
 
 def host_target() -> str:

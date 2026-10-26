@@ -23,5 +23,8 @@
 - [ ] Validate tokens with `getMe`; check the returned username matches
 - [ ] Decide: 4 profiles (one per bot) vs. one gateway with 4 bots
 
-## Later
-- [ ] Code signing (Apple Developer ID + notarization, Windows Authenticode)
+## Signing
+- [x] Windows: PSF-signed CPython (NuGet) instead of unsigned python-build-standalone
+- [x] Windows: CI signs every unsigned wheel binary and verifies all with Get-AuthenticodeSignature
+- [ ] Create the Azure Artifact Signing account + certificate profile; add the six `AZURE_*` repo secrets
+- [ ] macOS: Developer ID signing + notarization

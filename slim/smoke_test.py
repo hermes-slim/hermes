@@ -20,7 +20,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
@@ -45,8 +44,8 @@ def main() -> int:
     if args.archive.suffix == ".zip":
         zipfile.ZipFile(args.archive).extractall(root)
     else:
-        with tarfile.open(args.archive) as t:
-            t.extractall(root, filter="tar")
+        # .tar.zst: GNU tar (with zstd on PATH) and bsdtar both pick the codec from the suffix.
+        subprocess.run(["tar", "-xf", args.archive, "-C", root], check=True)
     bundle = root / "hermes-slim"
     windows = os.name == "nt"
     py = bundle / "python" / ("python.exe" if windows else "bin/python3")

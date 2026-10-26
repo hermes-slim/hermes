@@ -38,6 +38,10 @@ jobs:
             os: macos-15-intel
           - target: darwin-arm64
             os: macos-latest
+          - target: linux-x64
+            os: ubuntu-latest
+          - target: linux-arm64
+            os: ubuntu-24.04-arm
           - target: linux-x64-musl
             os: ubuntu-latest
             container: alpine:3.22
@@ -48,12 +52,16 @@ jobs:
         shell: bash
     env:
       PYTHONUTF8: "1"
+      # Read by the signing step's `if` (a step's own env is not visible there).
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
     steps:
       - name: Alpine prerequisites
         if: matrix.container
         shell: sh
-        run: apk add --no-cache bash python3 git github-cli tar
+        run: apk add --no-cache bash python3 git github-cli tar zstd build-base curl
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # build_bundle.py stamps the version from `git describe`
       - name: Host python
         id: py
         run: |
@@ -67,14 +75,48 @@ jobs:
           mkdir -p wheels
           gh release download latest -R hermes-slim/wheels -D wheels --pattern '*.whl' || echo "no extra wheels"
           ls -l wheels
-      - name: Build bundle
+      - name: Stage bundle
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          ${{ steps.py.outputs.bin }} slim/build_bundle.py --target ${{ matrix.target }} --wheels wheels --out dist --work "$RUNNER_TEMP/hs-work"
+          ${{ steps.py.outputs.bin }} slim/build_bundle.py --target ${{ matrix.target }} --wheels wheels --work "$RUNNER_TEMP/hs-work" --stage-only
+      # Smart App Control (on by default on new Windows 11 installs) refuses unsigned
+      # binaries, the wheels' .pyd/.dll included. The interpreter is python.org's
+      # (PSF-signed); everything stage listed as unsigned is signed here with our
+      # Azure Artifact Signing certificate profile.
+      - name: Sign Windows binaries
+        if: matrix.target == 'win32-x64' && env.AZURE_CLIENT_ID != ''
+        uses: azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba  # v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          files-catalog: ${{ runner.temp }}/hs-work/unsigned.txt
+          file-digest: SHA256
+          timestamp-digest: SHA256
+      - name: Verify every Windows binary is validly signed
+        if: matrix.target == 'win32-x64'
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem -Recurse -File "$env:RUNNER_TEMP/hs-work/hermes-slim" -Include *.exe,*.dll,*.pyd |
+            Get-AuthenticodeSignature | Where-Object Status -ne 'Valid'
+          $bad | ForEach-Object { Write-Host "$($_.Status)  $($_.Path)" }
+          if ($bad) {
+            # Releases must run under Smart App Control; PR builds without the signing secrets only warn.
+            if ($env:GITHUB_REF -like 'refs/tags/v*') { throw "$(@($bad).Count) binaries are not validly signed" }
+            Write-Host "::warning::$(@($bad).Count) binaries unsigned: this bundle will not run under Smart App Control"
+          }
+      - name: Package bundle
+        run: ${{ steps.py.outputs.bin }} slim/build_bundle.py --target ${{ matrix.target }} --out dist --work "$RUNNER_TEMP/hs-work" --package-only
+      - name: Static zstd for clients without one
+        if: matrix.target == 'linux-x64-musl'
+        run: sh slim/build_zstd.sh dist
       - name: Smoke test
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: ${{ steps.py.outputs.bin }} slim/smoke_test.py "$(ls dist/hermes-slim-*-${{ matrix.target }}.zip dist/hermes-slim-*-${{ matrix.target }}.tar.gz 2>/dev/null | head -1)"
+        run: ${{ steps.py.outputs.bin }} slim/smoke_test.py "$(ls dist/hermes-slim-*-${{ matrix.target }}.zip dist/hermes-slim-*-${{ matrix.target }}.tar.zst 2>/dev/null | head -1)"
       - uses: actions/upload-artifact@v4
         with:
           name: hermes-slim-${{ matrix.target }}

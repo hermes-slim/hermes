@@ -32,7 +32,7 @@ dozens of packages at install time — what AV products flag), CI produces one
 self-contained archive per target:
 
 ```
-hermes-slim-<ver>-<target>.{tar.gz|zip}
+hermes-slim-<ver>-<target>.{tar.zst|zip}
   python/          relocatable CPython 3.14 (python-build-standalone)
   app/             hermes source at the tagged commit
   site-packages    every dependency pre-installed from uv.lock (+ our wheels)
@@ -110,8 +110,24 @@ Upstream's own workflows are disabled in this fork via the Actions API
   links `hermes` into `~/.local/bin`, runs setup with `--service`.
 - Windows: `slim/install.ps1` — same, into `%LOCALAPPDATA%\\hermes-slim`, adds `bin` to the user PATH.
 
+## Signed binaries (Windows Smart App Control)
+Smart App Control, on by default on fresh Windows 11 installs, refuses to run or load
+any unsigned binary, and has no per-app exception: the only way past it is turning it
+off for good. So the Windows bundle ships signed binaries only:
+- The interpreter is python.org's CPython (the NuGet `python` package, same version as
+  the other targets), which the Python Software Foundation signs. python-build-standalone's
+  Windows build, which upstream Hermes (via uv) and earlier bundles used, is unsigned:
+  that is what SAC blocked.
+- Dependency wheels ship ~110 unsigned `.pyd`/`.dll` (pywin32, Pillow, lxml, cryptography,
+  pydantic-core, aiohttp, ...). `build_bundle.py --stage-only` lists them in
+  `unsigned.txt` (`slim/pe_signatures.py`); CI signs that list with our Azure Artifact
+  Signing certificate profile, checks every `.exe/.dll/.pyd` with `Get-AuthenticodeSignature`,
+  then `--package-only` zips it. A `v*` tag fails if anything is not validly signed.
+- Repo secrets: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+  `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_PROFILE`.
+
 ## Known gaps
-- Bundles are unsigned. install.sh clears the macOS quarantine flag; Windows SmartScreen may still warn.
-  Code signing (Apple Developer ID, Windows cert) is the real fix.
+- macOS bundles are not Developer ID signed or notarized; install.sh clears the quarantine
+  flag instead. Signing + notarization (Apple Developer ID) is the real fix.
 - `HERMES_SLIM=1` is also written to `~/.hermes/.env`, which Hermes loads before provider plugins, so
   service-started gateways hide Nous too.

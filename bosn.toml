@@ -1,0 +1,116 @@
+# hermes-slim local loop, in the same alpine:3.22 the linux-x64-musl CI job uses:
+#   bosn run --task bundle          build the glibc linux-x64 bundle (bundle-musl: linux-x64-musl)
+#   bosn run --task install-debian  run install.sh on a clean glibc box (no Python, no git)
+#   bosn run --task install-alpine  the same on a clean musl box
+# Bundles land in .bosn-dist/ (gitignored), which every stack mounts at /dist.
+[stack.alpine]
+dockerfile = "slim/bosn/alpine.Dockerfile"
+family = "hermes-slim-alpine"
+default = true
+workdir = "/repo"
+
+[stack.alpine.mounts]
+repo = { source = ".", destination = "/repo", readonly = true }
+dist = { source = ".bosn-dist", destination = "/dist" }
+
+[stack.alpine.volumes]
+work = { scope = "stack", destination = "/work" }
+
+[stack.glibc]
+dockerfile = "slim/bosn/glibc.Dockerfile"
+family = "hermes-slim-glibc"
+workdir = "/repo"
+
+[stack.glibc.mounts]
+repo = { source = ".", destination = "/repo", readonly = true }
+dist = { source = ".bosn-dist", destination = "/dist" }
+
+[stack.glibc.volumes]
+work = { scope = "stack", destination = "/work" }
+
+[stack.debian]
+dockerfile = "slim/bosn/debian.Dockerfile"
+family = "hermes-slim-debian"
+workdir = "/repo"
+
+[stack.debian.mounts]
+repo = { source = ".", destination = "/repo", readonly = true }
+dist = { source = ".bosn-dist", destination = "/dist" }
+
+[stack.debian.volumes]
+
+[stack.ubuntu]
+dockerfile = "slim/bosn/ubuntu.Dockerfile"
+family = "hermes-slim-ubuntu"
+workdir = "/repo"
+
+[stack.ubuntu.mounts]
+repo = { source = ".", destination = "/repo", readonly = true }
+dist = { source = ".bosn-dist", destination = "/dist" }
+
+[stack.alpine-client]
+dockerfile = "slim/bosn/alpine-client.Dockerfile"
+family = "hermes-slim-alpine-client"
+workdir = "/repo"
+
+[stack.alpine-client.mounts]
+repo = { source = ".", destination = "/repo", readonly = true }
+dist = { source = ".bosn-dist", destination = "/dist" }
+
+[stack.alpine-client.volumes]
+
+[task.bundle]
+stack = "glibc"
+cmd = "rm -f /dist/*-linux-x64.tar.zst* && python3 slim/build_bundle.py --work /work --out /dist"
+
+[task.bundle-musl]
+stack = "alpine"
+cmd = "rm -f /dist/*-linux-x64-musl.tar.zst* && python3 slim/build_bundle.py --work /work --out /dist"
+
+[task.zstd]
+stack = "alpine"
+cmd = "sh slim/build_zstd.sh /dist"
+
+[task.install-debian-nozstd]
+stack = "debian"
+cmd = "sh slim/bosn/client_install_test.sh linux-x64 --no-zstd"
+
+[task.smoke]
+stack = "alpine"
+cmd = "python3 slim/smoke_test.py \"$(ls -t /dist/*-linux-x64-musl.tar.zst | head -1)\""
+
+[task.install-bench]
+stack = "alpine"
+cmd = "python3 slim/install_bench.py \"$(ls -t /dist/*-linux-x64-musl.tar.zst | head -1)\""
+
+[task.install-debian]
+stack = "debian"
+cmd = "sh slim/bosn/client_install_test.sh linux-x64"
+
+[task.install-alpine]
+stack = "alpine-client"
+cmd = "sh slim/bosn/client_install_test.sh linux-x64-musl"
+
+[task.install-ubuntu]
+stack = "ubuntu"
+cmd = "sh slim/bosn/client_install_test.sh linux-x64"
+
+[task.port-busy]
+stack = "debian"
+cmd = "sh slim/bosn/port_busy_test.sh"
+
+[task.probe]
+stack = "debian"
+cmd = "sh slim/bosn/post_install_probe.sh"
+
+[task.install-pipe]
+stack = "debian"
+cmd = "sh slim/bosn/pipe_install_test.sh"
+
+[task.install-edge]
+stack = "debian"
+cmd = "sh slim/bosn/edge_install_test.sh"
+
+[task.install-user]
+stack = "debian"
+cmd = "sh slim/bosn/user_install_test.sh linux-x64"

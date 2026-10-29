@@ -39,7 +39,7 @@ python3 -m unittest discover -s slim/tests
 docker run --rm -v "$PWD":/src:ro -v hs-work:/work alpine:3.22 sh -c '
   apk add -q python3 git && git config --global --add safe.directory /src &&
   python3 /src/slim/build_bundle.py --work /work --out /work/dist &&
-  python3 /src/slim/smoke_test.py /work/dist/*.tar.gz'
+  python3 /src/slim/smoke_test.py /work/dist/*.tar.zst'
 ```
 
 ## Not covered yet

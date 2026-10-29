@@ -157,32 +157,78 @@ def hermes_cmd(*args: str) -> list[str]:
     return [sys.executable, str(APP / "hermes"), *args]
 
 
-def health(port: int, timeout: float = 3) -> dict | None:
+def health(port: int, key: str | None = None, timeout: float = 3) -> dict | None:
+    """/health of the gateway on `port`, or None. With `key`, only if that gateway is ours:
+    anything (another Hermes, any web server) can answer /health, only ours takes our key."""
+    base = f"http://127.0.0.1:{port}"
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=timeout) as r:
+        with urllib.request.urlopen(f"{base}/health", timeout=timeout) as r:
             data = json.load(r)
-            return data if data.get("status") == "ok" else None
+        if data.get("status") != "ok":
+            return None
+        if key:
+            req = urllib.request.Request(f"{base}/v1/models", headers={"Authorization": f"Bearer {key}"})
+            with urllib.request.urlopen(req, timeout=timeout):
+                pass
+        return data
     except (OSError, ValueError):
         return None
 
 
-def start_gateway(service: bool, port: int, wait: float, log_path: Path) -> dict:
-    env = dict(os.environ, HERMES_NONINTERACTIVE="1", PYTHONPATH=str(APP))
-    if service:
-        env.update(HERMES_GATEWAY_INSTALL_START_NOW="1", HERMES_GATEWAY_INSTALL_START_ON_LOGIN="1")
-        subprocess.run(hermes_cmd("gateway", "install", "--force", "--start-now", "--start-on-login"),
-                       env=env, check=True, stdin=subprocess.DEVNULL)
-    elif not health(port):
-        log = open(log_path, "ab")
-        kw = {"creationflags": 0x00000008 | 0x00000200} if os.name == "nt" else {"start_new_session": True}
-        subprocess.Popen(hermes_cmd("gateway", "run", "--replace"), env=env, stdin=subprocess.DEVNULL,
-                         stdout=log, stderr=subprocess.STDOUT, **kw)
+def wait_healthy(port: int, key: str, wait: float) -> dict | None:
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline:
-        if (h := health(port)):
+        if (h := health(port, key)):
             return h
-        time.sleep(1)
-    raise SetupError(f"gateway did not report healthy on 127.0.0.1:{port} within {wait:.0f}s (log: {log_path})")
+        time.sleep(0.25)
+    return None
+
+
+# How long a just-installed service gets to answer /health before setup runs the
+# gateway itself.
+SERVICE_GRACE = 30.0
+
+
+def has_service_manager() -> bool:
+    """launchd and the Task Scheduler are always there; on Linux only systemd is supported,
+    and Hermes declines services inside containers (even ones running systemd)."""
+    if not sys.platform.startswith("linux"):
+        return True
+    from hermes_platform.host.runtime import is_container
+
+    return Path("/run/systemd/system").is_dir() and not is_container()
+
+
+def start_gateway(service: bool, port: int, key: str, wait: float, log_path: Path) -> dict:
+    env = dict(os.environ, HERMES_NONINTERACTIVE="1", PYTHONPATH=str(APP))
+    if service and not has_service_manager():
+        print("no systemd user services here (container or no systemd); running the gateway in the background "
+              "(it will not start on login)", file=sys.stderr)
+        service = False
+    if service:
+        env.update(HERMES_GATEWAY_INSTALL_START_NOW="1", HERMES_GATEWAY_INSTALL_START_ON_LOGIN="1")
+        # With no service manager (containers, WSL without systemd, minimal servers) Hermes
+        # declines to install one and still exits 0, so judge the service by /health.
+        installed = subprocess.run(hermes_cmd("gateway", "install", "--force", "--start-now", "--start-on-login"),
+                                   env=env, stdin=subprocess.DEVNULL).returncode == 0
+        if installed and (h := wait_healthy(port, key, SERVICE_GRACE)):
+            return h
+        print("gateway service did not start; running the gateway in the background instead", file=sys.stderr)
+    # Always start our own (--replace takes over this HERMES_HOME's gateway): an answer on
+    # the port alone may come from another install, or from something that is not Hermes.
+    log = open(log_path, "ab")
+    kw = {"creationflags": 0x00000008 | 0x00000200} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen(hermes_cmd("gateway", "run", "--replace"), env=env, stdin=subprocess.DEVNULL,
+                            stdout=log, stderr=subprocess.STDOUT, **kw)
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise SetupError(f"gateway exited with {proc.returncode} (is port {port} taken? log: {log_path})")
+        if (h := health(port, key)):
+            return h
+        time.sleep(0.25)
+    raise SetupError(f"gateway did not report healthy on 127.0.0.1:{port} within {wait:.0f}s "
+                     f"(if something else holds that port, pass --api-port; log: {log_path})")
 
 
 # ---------------------------------------------------------------- main
@@ -202,14 +248,38 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--no-gateway", action="store_true", help="write config only")
     ap.add_argument("--service", action="store_true", default=bool(e("HS_SERVICE")),
                     help="install the gateway as a login service (launchd/systemd/Windows task)")
+    ap.add_argument("--gateway-only", action="store_true",
+                    help="keep the existing configuration and only (re)start the gateway (upgrades)")
     ap.add_argument("--gateway-wait", type=float, default=180)
     ap.add_argument("--json", action="store_true", help="print a machine-readable summary")
     return ap.parse_args(argv)
 
 
+def restart_gateway(args) -> dict:
+    """Upgrade path: the user configured this HERMES_HOME already; bring its gateway back."""
+    from hermes_cli import config as hc
+
+    env = _read_env(hc.get_env_path())
+    if not env.get("OPENROUTER_API_KEY"):
+        raise SetupError("no existing configuration to keep; run hermes-slim-setup")
+    port = int(env.get("API_SERVER_PORT") or args.api_port)
+    log = hc.get_config_path().parent / "logs" / "slim-gateway.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    return {"ok": True, "home": str(hc.get_config_path().parent),
+            "gateway": start_gateway(args.service, port, env.get("API_SERVER_KEY", ""), args.gateway_wait, log)}
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
     interactive = not args.non_interactive and sys.stdin.isatty()
+    if args.gateway_only:
+        try:
+            summary = restart_gateway(args)
+        except SetupError as e:
+            print(json.dumps({"ok": False, "error": str(e)}) if args.json else f"error: {e}", file=sys.stderr)
+            return 2
+        print(json.dumps(summary) if args.json else f"✓ gateway healthy ({summary['home']})")
+        return 0
     try:
         if interactive:
             print("hermes-slim setup — OpenRouter + DeepSeek\n")
@@ -233,7 +303,8 @@ def main(argv=None) -> int:
         if not args.no_gateway:
             log = Path(paths["home"]) / "logs" / "slim-gateway.log"
             log.parent.mkdir(parents=True, exist_ok=True)
-            summary["gateway"] = start_gateway(args.service, args.api_port, args.gateway_wait, log)
+            api_key = _read_env(Path(summary["env"])).get("API_SERVER_KEY", "")
+            summary["gateway"] = start_gateway(args.service, args.api_port, api_key, args.gateway_wait, log)
     except SetupError as e:
         print(json.dumps({"ok": False, "error": str(e)}) if args.json else f"error: {e}", file=sys.stderr)
         return 2

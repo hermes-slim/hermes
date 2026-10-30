@@ -27,6 +27,12 @@ one transcriptable run out.
 - The run must outlive the current turn (detached) and be harvested later.
 - You want a second opinion from a different harness or model.
 
+Decision-making counts as work. When the question is a judgment call - which
+approach, which root cause, whether this is worth doing - hand it to clud rather
+than deciding it alone: the child sees the code in its own context and its
+answers are usually better. Ask for the decision *and* its evidence, then verify
+the evidence yourself.
+
 Use `delegate_task` instead when the work is a quick bounded subtask inside this
 conversation; use a plain `terminal` call when one command answers the question.
 

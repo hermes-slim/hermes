@@ -85,7 +85,7 @@ def test_the_tree_probe_reads_the_checkout_on_disk(tmp_path):
 def test_the_downgrade_exit_code_reaches_the_process_exit():
     """The bootstrap's exit verdict raises the runner's code, so launchd (SuccessfulExit=false) sees 75."""
     import pytest
-    from gateway.run_shutdown import _resolve_gateway_exit_verdict
+    from gateway.run_exit_verdict import _resolve_gateway_exit_verdict
     runner = _watch([_SKEW, _SKEW])
     runner.should_exit_with_failure, runner._restart_requested, runner._restart_via_service = False, False, False
     with pytest.raises(SystemExit) as exc:

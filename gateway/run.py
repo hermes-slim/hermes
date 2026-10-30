@@ -2185,7 +2185,8 @@ from gateway.run_voice import GatewayVoiceMixin
 from gateway.run_adapters import GatewayAdapterLifecycleMixin
 from gateway.run_topics import GatewayTopicThreadsMixin
 from gateway.run_turn import GatewayTurnMixin, is_context_overflow_failure_result
-from gateway.run_shutdown import GatewayShutdownMixin, _resolve_gateway_exit_verdict
+from gateway.run_exit_verdict import _resolve_gateway_exit_verdict
+from gateway.run_shutdown import GatewayShutdownMixin
 from gateway.run_busy import GatewayBusySessionMixin
 from gateway.run_config_loaders import GatewayConfigLoadersMixin
 from gateway.run_startup import GatewayStartupMixin, _own_policy_envs
@@ -5082,23 +5083,13 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     return await bootstrap(config, replace, verbosity, force, idle_exit)
 
 
-def _guard_corrupt_user_config() -> None:
-    """Fail closed when the active profile's config.yaml cannot be parsed: nobody can repair it on this
-    surface, and defaults would let provider auto-detection adopt ``.env`` credentials the config never
-    named. Same policy and escape hatch (``HERMES_IGNORE_USER_CONFIG=1``) as ``hermes_cli/main.py``."""
-    from hermes_cli.config import InvalidUserConfigError, require_parseable_user_config
-
-    try:
-        require_parseable_user_config()
-    except InvalidUserConfigError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
-
-
 def main():
     """CLI entry point for the gateway."""
+    from gateway import exit_history
+    exit_history.report_crash_loop()
     # Before any config-dependent startup (watchdog, DB opens, provider resolution).
-    _guard_corrupt_user_config()
+    from gateway.run_config_guard import guard_corrupt_user_config
+    guard_corrupt_user_config()
 
     # Advertise the harness to children (mirrors _advertise_agent_env in hermes_cli/main.py, inlined to
     # avoid its startup side effects). Value must equal registry id ``hermes-agent`` exactly.
@@ -5178,10 +5169,14 @@ def main():
     except SystemExit as e:
         # e.code may be None (→ 0), an int, or a str (→ 1, like CPython).
         exit_code = 0 if e.code is None else e.code if isinstance(e.code, int) else 1
+        _exit_after_graceful_shutdown(exit_code, stack=traceback.format_exc())
+    except Exception as e:
+        exit_history.record_exit(1, f"uncaught {type(e).__name__}: {e!r}", traceback.format_exc())
+        raise
     _exit_after_graceful_shutdown(exit_code)
 
 
-def _exit_after_graceful_shutdown(exit_code: int) -> None:
+def _exit_after_graceful_shutdown(exit_code: int, stack: Optional[str] = None) -> None:
     """Flush stdio, release the PID file + lock, stamp the clean exit, flush opt-in metrics, hard-exit.
     ``os._exit`` (not ``sys.exit``): SystemExit runs ``Py_FinalizeEx``, which joins every non-daemon
     thread — exactly the hang a wedged worker causes. It bypasses ``atexit``, so the metrics flush,
@@ -5210,6 +5205,8 @@ def _exit_after_graceful_shutdown(exit_code: int) -> None:
         stamp_exit("clean")  # the exit-metrics marker too: os._exit skips its atexit stamp (never raises)
         from gateway.lifecycle_ledger import mark_exited
         mark_exited(exit_code, reason="graceful_shutdown")
+        from gateway.exit_history import record_exit
+        record_exit(exit_code, stack=stack)
 
     def _flush_metrics() -> None:  # after the clean stamp: a supervisor kill mid-flush is no unclean death
         from hermes_cli.observability.shared_metrics_process import flush_before_hard_exit

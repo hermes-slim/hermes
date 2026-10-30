@@ -24,33 +24,33 @@ def _write_corrupt_config(tmp_path):
 
 class TestGatewayGuard:
     def test_gateway_refuses_corrupt_config(self, tmp_path, capsys):
-        from gateway.run import _guard_corrupt_user_config
+        from gateway.run_config_guard import guard_corrupt_user_config
 
         _write_corrupt_config(tmp_path)
 
         with pytest.raises(SystemExit) as exc_info:
-            _guard_corrupt_user_config()
+            guard_corrupt_user_config()
 
         assert exc_info.value.code == 2
         assert "Hermes stopped because your settings file" in capsys.readouterr().err
 
     def test_gateway_allows_valid_config(self, tmp_path):
-        from gateway.run import _guard_corrupt_user_config
+        from gateway.run_config_guard import guard_corrupt_user_config
 
         (tmp_path / "config.yaml").write_text("model:\n  default: local/test\n")
-        _guard_corrupt_user_config()  # must not raise
+        guard_corrupt_user_config()  # must not raise
 
     def test_gateway_allows_missing_config(self, tmp_path):
-        from gateway.run import _guard_corrupt_user_config
+        from gateway.run_config_guard import guard_corrupt_user_config
 
-        _guard_corrupt_user_config()  # first-run state: must not raise
+        guard_corrupt_user_config()  # first-run state: must not raise
 
     def test_gateway_escape_hatch(self, monkeypatch, tmp_path):
-        from gateway.run import _guard_corrupt_user_config
+        from gateway.run_config_guard import guard_corrupt_user_config
 
         _write_corrupt_config(tmp_path)
         monkeypatch.setenv("HERMES_IGNORE_USER_CONFIG", "1")
-        _guard_corrupt_user_config()  # must not raise
+        guard_corrupt_user_config()  # must not raise
 
 class TestCronRunJobGuard:
     def _job(self, **overrides):

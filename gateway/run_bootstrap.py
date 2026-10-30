@@ -235,6 +235,8 @@ def _start_gateway_make_shutdown_signal_handler(runner, _signal_initiated_shutdo
             # here, and a sibling-driven --replace takeover is not launchd-timed either, so both
             # keep the configured drain. _stop_impl uses this to cap the drain to the live budget.
             runner._stop_requested_by_signal = True
+        from gateway.exit_history import note_stop_request
+        note_stop_request(f"received {sig_name or 'signal'}" + (" (planned)" if planned_stop or planned_takeover else ""))
         asyncio.create_task(runner.stop())
     return shutdown_signal_handler
 

@@ -4502,61 +4502,24 @@ def _make_exit_diag():
     return _exit_diag
 
 
-def _respawn_storm_backoff() -> None:
-    """Portable app-level respawn-storm breaker (for supervisors without a floor). Defaults mirror
-    DEFAULT_CONFIG ``gateway.respawn_storm``; HERMES_GATEWAY_MAX_STARTS / HERMES_GATEWAY_START_WINDOW_S
-    override; max_starts <= 0 disables. Never blocks startup."""
-    try:
-        from gateway.status import record_start_and_check_storm
-        _max_starts = 5
-        _win = 120.0
-        try:
-            from hermes_cli.config import load_config
-            _cfg = load_config()
-            _gw = _cfg.get("gateway") if isinstance(_cfg, dict) else None
-            _rs = _gw.get("respawn_storm") if isinstance(_gw, dict) else None
-            if isinstance(_rs, dict):
-                if isinstance(_rs.get("max_starts"), int):
-                    _max_starts = _rs["max_starts"]
-                if isinstance(_rs.get("window_seconds"), (int, float)):
-                    _win = float(_rs["window_seconds"])
-        except Exception:
-            pass
-        try:
-            _max_starts = int(os.environ["HERMES_GATEWAY_MAX_STARTS"])
-        except (KeyError, ValueError):
-            pass
-        try:
-            _win = float(os.environ["HERMES_GATEWAY_START_WINDOW_S"])
-        except (KeyError, ValueError):
-            pass
-        _storm = record_start_and_check_storm(max_starts=_max_starts, window_s=_win) if _max_starts > 0 else None
-        if _storm is not None:
-            logger.warning(
-                "Gateway (re)started %d times in %.0fs — backing off %.0fs to break a respawn storm.",
-                _storm.count, _storm.window_s, _storm.backoff_s,
-            )
-            # Tell the startup watchdog the backoff sleep is intentional, not a parked deadlock.
-            try:
-                from hermes_startup_watchdog import kick_startup_watchdog
-                kick_startup_watchdog(extra_s=_storm.backoff_s)
-            except Exception:
-                pass
-            time.sleep(_storm.backoff_s)
-    except Exception as _be:
-        logger.debug("respawn-storm breaker check failed (non-fatal): %s", _be)
-
-
 def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, force: bool = False,
                 idle_exit: bool = False):
     """Run the gateway in foreground. verbose 1=INFO/2+=DEBUG on stderr; quiet: no stderr logs; replace:
     kill an existing instance first (avoids systemd restart loops); force: skip the supervised guard;
     idle_exit: a client auto-started this unsupervised gateway, so it exits once idle
     (``gateway.unmanaged_idle_exit_seconds``)."""
-    _guard_official_docker_root_gateway()
-    _attach_to_host_gateway_or_guard(force=force, replace=replace)
-    _guard_supervised_gateway_conflict(force=force)
-    _guard_existing_gateway_process_conflict(replace=replace)
+    from gateway import exit_history
+    exit_history.report_crash_loop()
+    try:
+        # These guards exit before the respawn-storm breaker and exit-diag see the start; a
+        # supervisor restarting into one of them is a crash loop only the exit history records.
+        _guard_official_docker_root_gateway()
+        _attach_to_host_gateway_or_guard(force=force, replace=replace)
+        _guard_supervised_gateway_conflict(force=force)
+        _guard_existing_gateway_process_conflict(replace=replace)
+    except SystemExit as e:
+        exit_history.record_system_exit(e)
+        raise
     sys.path.insert(0, str(PROJECT_ROOT))
     _apply_startup_watchdog_config()
     from hermes_cli.observability.shared_metrics_process import begin_process
@@ -4609,13 +4572,14 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     )
     _atexit.register(lambda: _exit_diag("atexit.hook", sys_exc=repr(sys.exc_info())))
 
-    _respawn_storm_backoff()
+    from hermes_cli.gateway_respawn_storm import respawn_storm_backoff
+    respawn_storm_backoff()
 
-    def _hard_exit_after_gateway_teardown(code: int) -> None:
+    def _hard_exit_after_gateway_teardown(code: int, stack: str | None = None) -> None:
         # Mirror gateway.run.main()'s wedge-proof exit: bypass Python finalization so non-daemon
         # threads (in-flight cron jobs) can't delay a /restart by minutes.
         from gateway.run import _exit_after_graceful_shutdown
-        _exit_after_graceful_shutdown(code)
+        _exit_after_graceful_shutdown(code, stack=stack)
 
     success = False
     try:
@@ -4630,10 +4594,12 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
         return  # unreachable in production (os._exit); guard for test stubs
     except SystemExit as e:
         _exit_diag("asyncio.run.SystemExit", code=e.code, traceback=_traceback.format_exc())
-        _hard_exit_after_gateway_teardown(0 if e.code is None else e.code if isinstance(e.code, int) else 1)
+        _hard_exit_after_gateway_teardown(0 if e.code is None else e.code if isinstance(e.code, int) else 1,
+                                          stack=_traceback.format_exc())
     except BaseException as e:
         # Everything else (CancelledError, exotic BaseExceptions): log the cause, then re-raise.
         _exit_diag("asyncio.run.exception", exc_type=type(e).__name__, exc_repr=repr(e), traceback=_traceback.format_exc())
+        exit_history.record_exit(1, f"uncaught {type(e).__name__}: {e!r}", _traceback.format_exc())
         raise
     if not success:
         _exit_diag("gateway.exit_nonzero")

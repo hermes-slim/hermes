@@ -337,6 +337,7 @@ import {
   linuxGpuChildDeathPath,
   linuxGpuFallbackMarker,
   linuxGpuFallbackReasonForDeath,
+  type LinuxGpuMarker,
   linuxGpuMarkerAfterSuccessfulBoot,
   readLinuxGpuMarker,
   shouldEngageSilentGpuRetryFallback,
@@ -960,6 +961,7 @@ if (NVIDIA_EGL_FALLBACK.enable) {
 // (1/true → always software, 0/false → keep GPU on).
 let linuxGpuFallbackActive = false
 let linuxGpuFallbackSticky = false
+let linuxGpuStickyMarker: LinuxGpuMarker | null = null
 let linuxGpuRelaunchAttempted = false
 
 const LINUX_GPU_SOFTWARE_ACTIVE =
@@ -979,6 +981,7 @@ if (process.platform === 'linux') {
 
   linuxGpuFallbackActive = linuxGpuDecision.enable
   linuxGpuFallbackSticky = linuxGpuDecision.nextMarker.state === 'fallback'
+  linuxGpuStickyMarker = linuxGpuFallbackSticky ? linuxGpuDecision.nextMarker : null
 
   if (isPrimaryInstance) {
     try {
@@ -13720,7 +13723,8 @@ function createWindow() {
             app.getPath('userData'),
             linuxGpuMarkerAfterSuccessfulBoot({
               fallbackActive: linuxGpuFallbackSticky,
-              appVersion: app.getVersion()
+              appVersion: app.getVersion(),
+              marker: linuxGpuStickyMarker
             })
           )
         } catch (error) {

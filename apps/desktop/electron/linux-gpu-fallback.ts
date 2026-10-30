@@ -32,6 +32,15 @@ import { alreadyHasDisableGpu, isHermesDesktopGpuOverrideOff } from './windows-s
 
 export const LINUX_GPU_FALLBACK_MARKER_FILENAME = 'linux-gpu-fallback.json'
 
+/** Software launches before a same-version sticky fallback re-probes the GPU (#6). */
+export const LINUX_GPU_REPROBE_BASE_LAUNCHES = 5
+
+/** Wall time before a same-version sticky fallback re-probes the GPU (#6). */
+export const LINUX_GPU_REPROBE_BASE_MS = 24 * 60 * 60 * 1000
+
+/** Backoff cap for repeated failed re-probes (2^4 = 16x the base). */
+export const LINUX_GPU_REPROBE_MAX_DOUBLINGS = 4
+
 /** Consecutive mid-boot aborts required before falling back to software. */
 export const BOOT_ABORTS_BEFORE_LINUX_GPU_FALLBACK = 2
 
@@ -107,6 +116,13 @@ export interface LinuxGpuMarker {
   /** This boot is a GPU re-probe after an app update; an abort returns
    *  straight to fallback instead of restarting the two-strike count. */
   reprobe?: boolean
+  /** Epoch ms the fallback engaged; with `launches` it bounds how long software
+   *  rendering lasts when the app version never changes (dev `0.0.0` builds). */
+  since?: number
+  /** Software launches since the fallback engaged. */
+  launches?: number
+  /** Re-probes that failed back into fallback; each doubles the next interval. */
+  failedReprobes?: number
 }
 
 export function linuxGpuMarkerPath(userDataDir: string): string {
@@ -147,6 +163,14 @@ export function parseLinuxGpuMarker(raw: unknown): LinuxGpuMarker | null {
     marker.reprobe = true
   }
 
+  for (const key of ['since', 'launches', 'failedReprobes'] as const) {
+    const value = Number(record[key])
+
+    if (Number.isFinite(value) && value > 0) {
+      marker[key] = value
+    }
+  }
+
   return marker
 }
 
@@ -184,8 +208,16 @@ export function writeLinuxGpuMarker(
   writeFileSync(linuxGpuMarkerPath(dir), `${JSON.stringify(marker)}\n`, 'utf8')
 }
 
-export function linuxGpuFallbackMarker(reason: LinuxGpuFallbackReason, appVersion?: string): LinuxGpuMarker {
-  const marker: LinuxGpuMarker = { state: 'fallback', reason }
+export function linuxGpuFallbackMarker(
+  reason: LinuxGpuFallbackReason,
+  appVersion?: string,
+  options: { now?: number; failedReprobes?: number } = {}
+): LinuxGpuMarker {
+  const marker: LinuxGpuMarker = { state: 'fallback', reason, since: options.now ?? Date.now() }
+
+  if (options.failedReprobes) {
+    marker.failedReprobes = options.failedReprobes
+  }
 
   if (appVersion) {
     marker.version = appVersion
@@ -202,9 +234,15 @@ export function linuxGpuFallbackMarker(reason: LinuxGpuFallbackReason, appVersio
 export function linuxGpuMarkerAfterSuccessfulBoot(options: {
   fallbackActive: boolean
   appVersion?: string
+  /** This launch's sticky marker; kept so its re-probe clock keeps running. */
+  marker?: LinuxGpuMarker | null
 }): LinuxGpuMarker {
   if (!options.fallbackActive) {
     return { state: 'ok' }
+  }
+
+  if (options.marker?.state === 'fallback') {
+    return options.marker
   }
 
   return linuxGpuFallbackMarker('gpu-launch-failure', options.appVersion)
@@ -251,9 +289,11 @@ export function decideLinuxGpuLaunch(
     appVersion?: string
     remoteDisplayReason?: string | null
     nvidiaFallbackActive?: boolean
+    now?: number
   } = {}
 ): LinuxGpuLaunchDecision {
   const appVersion = String(options.appVersion || '')
+  const now = options.now ?? Date.now()
 
   if ((options.platform ?? process.platform) !== 'linux') {
     return { enable: false, reason: null, nextMarker: { state: 'booting' } }
@@ -295,10 +335,25 @@ export function decideLinuxGpuLaunch(
       }
     }
 
+    // Same version: re-probe after enough software launches or wall time, so a
+    // transient failure (force-kill, driver hiccup) never pins software rendering.
+    const failedReprobes = marker.failedReprobes ?? 0
+    const factor = 2 ** Math.min(failedReprobes, LINUX_GPU_REPROBE_MAX_DOUBLINGS)
+    const launches = marker.launches ?? 0
+    const since = marker.since ?? now
+
+    if (launches >= LINUX_GPU_REPROBE_BASE_LAUNCHES * factor || now - since >= LINUX_GPU_REPROBE_BASE_MS * factor) {
+      return {
+        enable: false,
+        reason: null,
+        nextMarker: { state: 'booting', reprobe: true, bootAborts: 0, failedReprobes }
+      }
+    }
+
     return {
       enable: true,
       reason: `sticky-fallback (${marker.reason ?? 'gpu-launch-failure'})`,
-      nextMarker: { ...marker, version: marker.version || appVersion || undefined }
+      nextMarker: { ...marker, version: marker.version || appVersion || undefined, since, launches: launches + 1 }
     }
   }
 
@@ -310,7 +365,10 @@ export function decideLinuxGpuLaunch(
       return {
         enable: true,
         reason: 'reprobe-failed (boot-loop)',
-        nextMarker: linuxGpuFallbackMarker('boot-loop', appVersion)
+        nextMarker: linuxGpuFallbackMarker('boot-loop', appVersion, {
+          now,
+          failedReprobes: (marker.failedReprobes ?? 0) + 1
+        })
       }
     }
 
@@ -318,7 +376,7 @@ export function decideLinuxGpuLaunch(
       return {
         enable: true,
         reason: 'boot-loop',
-        nextMarker: linuxGpuFallbackMarker('boot-loop', appVersion)
+        nextMarker: linuxGpuFallbackMarker('boot-loop', appVersion, { now })
       }
     }
 

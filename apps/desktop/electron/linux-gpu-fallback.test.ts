@@ -200,7 +200,8 @@ describe('linuxGpuMarkerAfterSuccessfulBoot', () => {
     expect(linuxGpuMarkerAfterSuccessfulBoot({ fallbackActive: true, appVersion: '0.21.5' })).toEqual({
       state: 'fallback',
       reason: 'gpu-launch-failure',
-      version: '0.21.5'
+      version: '0.21.5',
+      since: expect.any(Number)
     })
   })
 
@@ -208,7 +209,8 @@ describe('linuxGpuMarkerAfterSuccessfulBoot', () => {
     expect(linuxGpuFallbackMarker('gpu-launch-failure', '0.21.5')).toEqual({
       state: 'fallback',
       reason: 'gpu-launch-failure',
-      version: '0.21.5'
+      version: '0.21.5',
+      since: expect.any(Number)
     })
   })
 })

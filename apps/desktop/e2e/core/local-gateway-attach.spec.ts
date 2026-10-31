@@ -20,7 +20,7 @@ import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-import { _electron, type ElectronApplication, expect, type Page, test } from '@playwright/test'
+import { type ElectronApplication, expect, type Page, test } from '@playwright/test'
 
 import {
   appLogTail,
@@ -29,7 +29,7 @@ import {
   type CoreSandbox,
   createCoreSandbox,
   currentSessionId,
-  launchCoreApp,
+  launchCoreAppForLane,
   recordWebSockets,
   REPO_ROOT,
   sandboxProcesses,
@@ -101,21 +101,6 @@ async function startGatewayFirst(sandbox: CoreSandbox): Promise<{ pid: number; l
   return { pid: Number(gatewayState(sandbox).pid), log }
 }
 
-async function launchApp(sandbox: CoreSandbox): Promise<{ app: ElectronApplication; page: Page }> {
-  if (!PACKAGED_EXE) {
-    return launchCoreApp(coreAppEnv(sandbox))
-  }
-
-  const app = await _electron.launch({
-    executablePath: PACKAGED_EXE,
-    args: ['--disable-gpu', '--no-sandbox'],
-    env: coreAppEnv(sandbox),
-    cwd: sandbox.root
-  })
-
-  return { app, page: await app.firstWindow() }
-}
-
 test(`Desktop${PACKAGED_EXE ? ' (packaged)' : ''} attaches to the gateway already running and serves a turn`, async () => {
   const provider = await startScriptedProvider()
   const sandbox = createCoreSandbox('attach')
@@ -132,7 +117,7 @@ test(`Desktop${PACKAGED_EXE ? ' (packaged)' : ''} attaches to the gateway alread
 
     for (let launch = 1; launch <= 2; launch++) {
       await test.step(`launch ${launch}: attach to pid ${gateway.pid}`, async () => {
-        live = await launchApp(sandbox)
+        live = await launchCoreAppForLane(sandbox)
         const { app, page } = live
 
         if (PACKAGED_EXE) {

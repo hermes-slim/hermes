@@ -9,17 +9,17 @@
 
 import { expect, test } from '@playwright/test'
 
-import { coreAppEnv, createCoreSandbox, launchCoreApp, waitForInteractive, writeProviderHome } from './harness'
+import { createCoreSandbox, launchCoreAppForLane, waitForInteractive, writeProviderHome } from './harness'
 import { startScriptedProvider } from './provider'
 
 const BUILT_IN_NAV = ['new-session', 'capabilities', 'messaging', 'artifacts', 'cron']
 
-test('sidebar: the Scheduled jobs nav row is visible and opens the cron view', async () => {
+test(`sidebar${process.env.HERMES_E2E_PACKAGED_EXE ? ' (packaged)' : ''}: the Scheduled jobs nav row is visible and opens the cron view`, async () => {
   const testInfo = test.info()
   const provider = await startScriptedProvider()
   const sandbox = createCoreSandbox('schedule-nav')
   writeProviderHome(sandbox.hermesHome, provider.url)
-  const { app, page } = await launchCoreApp(coreAppEnv(sandbox))
+  const { app, page } = await launchCoreAppForLane(sandbox)
 
   try {
     await waitForInteractive(app, page)

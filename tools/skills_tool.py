@@ -467,6 +467,42 @@ def _skill_linked_files(skill_dir: Optional[Path]) -> dict:
     return files
 
 
+_SECRET_REQUEST_PREFIX = "request/"
+
+
+def _secret_request(frontmatter: dict[str, Any], skill_name: str, file_path: str) -> Optional[str]:
+    """On-demand credential capture: a skill marked ``metadata.hermes.secret_request: true`` (the
+    bundled ``secure-secret``) treats ``file_path="request/<ENV_VAR>"`` as "ask the user for this env
+    var" through the same masked capture as a skill's ``required_environment_variables`` (the
+    desktop's ``secret`` request). The value is saved to the profile ``.env``; only its status is
+    returned. None for any other skill or path (a normal linked-file read)."""
+    metadata = frontmatter.get("metadata")
+    hermes_meta = metadata.get("hermes") if isinstance(metadata, dict) else None
+    if not (isinstance(hermes_meta, dict) and hermes_meta.get("secret_request") is True
+            and file_path.startswith(_SECRET_REQUEST_PREFIX)):
+        return None
+    from tools.skills_tool_setup import _ENV_VAR_NAME_RE
+    env_var = file_path[len(_SECRET_REQUEST_PREFIX):].strip()
+    if not _ENV_VAR_NAME_RE.match(env_var):
+        return _fail(f"'{env_var}' is not a valid environment variable name.",
+                     hint="Use file_path='request/ENV_VAR_NAME', e.g. 'request/OPENWEATHER_API_KEY'.")
+    capture = _capture_required_environment_variables(
+        skill_name, [{"name": env_var, "prompt": f"Enter value for {env_var}"}])
+    stored = env_var not in capture["missing_names"]
+    if stored:  # as _skill_readiness does: a set var passes through to sandboxed execution
+        with suppress(Exception):
+            from tools.env_passthrough import register_env_passthrough
+            register_env_passthrough([env_var])
+    result: dict[str, Any] = {
+        "success": stored, "secret_request": True, "env_var": env_var, "stored": stored, "setup_skipped": capture["setup_skipped"],
+        "message": (f"{env_var} was saved to the profile .env; the value was not exposed to you. "
+                    f"Tools and skills that read ${env_var} can use it now." if stored else
+                    f"{env_var} was not saved: the user skipped the prompt or no secure prompt is available.")}
+    if capture["gateway_setup_hint"]:
+        result["gateway_setup_hint"] = capture["gateway_setup_hint"]
+    return _json(result)
+
+
 def _skill_readiness(frontmatter: dict[str, Any], skill_name: str) -> tuple[dict, dict]:
     """Resolve required env vars / credential files (prompting for secrets where the surface
     allows) and register what's available for sandboxes. Returns ``(fields, extras)``: fields go
@@ -650,6 +686,8 @@ def skill_view(
         if _is_skill_disabled(resolved_name, rel) and (_is_skill_disabled(resolved_name) or any(
                 e["path"] == skill_md and e["load_name"] == rel for e in _skill_catalog(skip_disabled=True, include_hidden=True))):
             return _fail(f"Skill '{resolved_name}' is disabled. Enable it with `hermes skills` or inspect the files directly on disk.")
+        if file_path and (request := _secret_request(frontmatter, resolved_name, file_path)) is not None:
+            return request
         if file_path and skill_dir:
             return _serve_skill_file(
                 skill_dir, file_path, name, list_available=True, mark_read=True,

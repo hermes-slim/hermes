@@ -27,7 +27,8 @@ def dedup_skill_view(task_id, name, file_path, payload: dict, result: str) -> st
     file; otherwise record ``result``'s digest and return None (serve the full result)."""
     # Never dedup setup-needed views: readiness depends on config/env state that
     # changes without the file changing; the model must see the refreshed status.
-    if (not task_id or payload.get("setup_needed")
+    # Nor an on-demand secret request (``secure-secret``): each call is a new prompt, not a re-read.
+    if (not task_id or payload.get("setup_needed") or payload.get("secret_request")
             or payload.get("readiness_status") == "setup_needed"):
         return None
     resolved = str(payload.get("name") or name)

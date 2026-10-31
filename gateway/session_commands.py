@@ -475,7 +475,9 @@ async def execute_command(connection, ref, params, *, dispatch=False):
         return {'type': 'exec', 'output': _text(output)}
     if definition is None:
         def build():  # in the session's folder: its trusted project skills, as its catalog lists them
-            with _profile_runtime_scope(home), _session_workspace(authority.runner, live.source):
+            from gateway.session_secret_prompt import session_secret_prompt_scope
+            with (_profile_runtime_scope(home), _session_workspace(authority.runner, live.source),
+                  session_secret_prompt_scope(authority, ref.session_id)):
                 return _skill_directive(name, arg, live.route)
         return await asyncio.to_thread(build)
 

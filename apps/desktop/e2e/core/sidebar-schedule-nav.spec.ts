@@ -52,6 +52,14 @@ test(`sidebar${process.env.HERMES_E2E_PACKAGED_EXE ? ' (packaged)' : ''}: the Sc
 
     await cron.click()
     await expect(page).toHaveURL(/#\/cron|\/cron/, { timeout: 15_000 })
+
+    // Simple mode used to drop the row (it was tier: 'advanced') — the reported "missing" button.
+    await page.evaluate(() => localStorage.setItem('hermes.desktop.interfaceMode.v1', 'simple'))
+    await page.reload()
+    await waitForInteractive(app, page)
+    await testInfo.attach('window-simple.png', { body: await page.screenshot(), contentType: 'image/png' })
+    await expect(page.locator('[data-tour="sidebar-nav-cron"]')).toBeVisible()
+    await expect(page.locator('[data-tour="sidebar-nav-cron"]')).toBeInViewport()
   } finally {
     await app.close().catch(() => undefined)
     await provider.close()

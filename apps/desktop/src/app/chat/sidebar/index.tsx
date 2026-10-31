@@ -229,8 +229,9 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
     route: MESSAGING_ROUTE,
     keybindActionId: 'nav.messaging'
   },
-  // Artifacts and Scheduled jobs are outputs of running Hermes the developer
-  // way; Capabilities and Messaging are how anyone sets it up.
+  // Artifacts are an output of running Hermes the developer way; Capabilities,
+  // Messaging and Scheduled jobs are how anyone sets it up, so they show in
+  // every mode (Simple hid Scheduled jobs: "the Schedule button is missing").
   {
     id: 'artifacts',
     label: '',
@@ -244,8 +245,7 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
     label: '',
     icon: props => <Codicon name="watch" {...props} />,
     route: CRON_ROUTE,
-    keybindActionId: 'nav.cron',
-    tier: 'advanced'
+    keybindActionId: 'nav.cron'
   }
 ]
 

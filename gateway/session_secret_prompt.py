@@ -24,6 +24,24 @@ def _skipped(var_name, reason, message):
             "skipped": True, "message": message}
 
 
+def _viewer_callback(authority, session_id, cancelled):
+    """Main's secret-capture callback for *session_id*'s attached viewers on *authority*."""
+    def callback(var_name, prompt, metadata=None):
+        from gateway.session_server_requests import ask_viewer
+        live = authority.sessions.get(session_id)
+        if live is None:
+            return _skipped(var_name, "cancelled", "Secret setup was skipped.")
+        params = {"env_var": var_name, "prompt": prompt, **({"metadata": metadata} if metadata else {})}
+        value = ask_viewer(live.event_stream, session_id, "secret", params, timeout=SECRET_TIMEOUT_S,
+                           cancelled=cancelled)
+        if not value:
+            return _skipped(var_name, "cancelled", "Secret setup was skipped.")
+        from hermes_cli.config import save_env_value_secure
+        return {**save_env_value_secure(var_name, value), "skipped": False,
+                "message": "Secret stored securely. The secret value was not exposed to the model."}
+    return callback
+
+
 @contextlib.contextmanager
 def secret_prompt_scope(turn, agent):
     """Bind this turn's secret-capture callback (a ContextVar, so parallel tool workers inherit it)."""
@@ -33,20 +51,15 @@ def secret_prompt_scope(turn, agent):
         return
     from tools.skills_tool import bind_turn_secret_capture
     authority, session_id, _generation = turn._approval_owner
+    with bind_turn_secret_capture(_viewer_callback(
+            authority, session_id, lambda: bool(getattr(agent, "_interrupt_requested", False)))):
+        yield
 
-    def callback(var_name, prompt, metadata=None):
-        from gateway.session_server_requests import ask_viewer
-        live = authority.sessions.get(session_id)
-        if live is None:
-            return _skipped(var_name, "cancelled", "Secret setup was skipped.")
-        params = {"env_var": var_name, "prompt": prompt, **({"metadata": metadata} if metadata else {})}
-        value = ask_viewer(live.event_stream, session_id, "secret", params, timeout=SECRET_TIMEOUT_S,
-                           cancelled=lambda: bool(getattr(agent, "_interrupt_requested", False)))
-        if not value:
-            return _skipped(var_name, "cancelled", "Secret setup was skipped.")
-        from hermes_cli.config import save_env_value_secure
-        return {**save_env_value_secure(var_name, value), "skipped": False,
-                "message": "Secret stored securely. The secret value was not exposed to the model."}
 
-    with bind_turn_secret_capture(callback):
+@contextlib.contextmanager
+def session_secret_prompt_scope(authority, session_id):
+    """The same prompt outside a turn: a local session's typed ``/skill`` loads the skill (and asks for
+    its missing env vars) in ``gateway/session_commands.py`` before any turn exists."""
+    from tools.skills_tool import bind_turn_secret_capture
+    with bind_turn_secret_capture(_viewer_callback(authority, session_id, lambda: False)):
         yield

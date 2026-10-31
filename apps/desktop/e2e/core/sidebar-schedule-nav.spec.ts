@@ -54,6 +54,9 @@ test(`sidebar${process.env.HERMES_E2E_PACKAGED_EXE ? ' (packaged)' : ''}: the Sc
     await expect(page).toHaveURL(/#\/cron|\/cron/, { timeout: 15_000 })
 
     // Simple mode used to drop the row (it was tier: 'advanced') — the reported "missing" button.
+    // Close the cron dialog first: reloading on it never shows the composer waitForInteractive needs.
+    await page.keyboard.press('Escape')
+    await waitForInteractive(app, page)
     await page.evaluate(() => localStorage.setItem('hermes.desktop.interfaceMode.v1', 'simple'))
     await page.reload()
     await waitForInteractive(app, page)

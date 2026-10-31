@@ -694,3 +694,21 @@ export async function renderedTranscript(page: Page): Promise<{ bubbles: Rendere
     return { bubbles, fullText: (viewport as HTMLElement).innerText.replace(/\s+/g, ' ') }
   })
 }
+
+/** The dev Electron, or the packaged exe when HERMES_E2E_PACKAGED_EXE names one (the Windows lane). */
+export async function launchCoreAppForLane(sandbox: CoreSandbox): Promise<{ app: ElectronApplication; page: Page }> {
+  const packagedExe = process.env.HERMES_E2E_PACKAGED_EXE || ''
+
+  if (!packagedExe) {
+    return launchCoreApp(coreAppEnv(sandbox))
+  }
+
+  const app = await _electron.launch({
+    executablePath: packagedExe,
+    args: ['--disable-gpu', '--no-sandbox'],
+    env: coreAppEnv(sandbox),
+    cwd: sandbox.root
+  })
+
+  return { app, page: await app.firstWindow() }
+}

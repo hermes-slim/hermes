@@ -1,9 +1,9 @@
 # Hermes Agent - Development Guide
 
 For AI coding assistants and developers working on hermes-agent. This root file is a hub: what
-applies everywhere, then a routing table. Each area's `AGENTS.md` loads automatically when you work
+applies everywhere, then a routing table. Each area's `AGENTS.md` loads when you work
 in that directory; read it before editing there. `python scripts/check` caps this file at 12k chars
-and every root-to-area chain at 30k, so it loads whole on 128k+ models: long form goes in the guide.
+and every root-to-area chain at 30k, so it loads whole on 128k+ models.
 
 **Never give up on the right solution.**
 
@@ -60,8 +60,8 @@ unreachable otherwise).
 
 ## Development Environment
 
-`source ./activate` (fish: `activate.fish`, PowerShell: `activate.ps1`) provisions and activates the
-PM environment; pick an isolated `HERMES_HOME`/`HERMES_RUNTIME_DIR` first
+`source ./activate` (fish: `activate.fish`, PowerShell: `activate.ps1`) provisions the PM
+environment; pick an isolated `HERMES_HOME`/`HERMES_RUNTIME_DIR` first
 (`website/docs/reference/package-management.md#developer-workflow`). Tests need the separate test
 environment in `CONTRIBUTING.md`. **`python scripts/check`** runs every blocking lint check CI
 runs, with CI's pinned tools; `--install-hook pre-push` runs it on every push (re-run after
@@ -70,12 +70,12 @@ pulling to refresh the hook). `# noqa` does not waive a ratchet finding:
 
 ## Project Structure
 
-Counts shift constantly; the filesystem is canonical. Load-bearing entry points:
+Load-bearing entry points:
 
 ```
 hermes-agent/
 ├── run_agent.py          # AIAgent facade; the turn loop lives in agent/turn_*.py
-├── model_tools.py        # Tool orchestration, discover_builtin_tools(), handle_function_call()
+├── model_tools.py        # Tool orchestration + handle_function_call()
 ├── toolsets.py           # TOOLSETS dict, _HERMES_CORE_TOOLS
 ├── cli.py                # HermesCLI (REPL, slash dispatch) + hermes_cli/cli_*_mixin.py
 ├── hermes_state.py       # SessionDB facade; hermes_state_*.py siblings
@@ -91,12 +91,12 @@ hermes-agent/
 ├── cron/                 # jobs.py + scheduler.py (+ scheduler_*.py)
 ├── pm/, hermes_platform/ # dependency/environment manager; machine facts + executable lookup
 ├── scripts/              # check, run_tests.sh, code_health/, ci/
-├── website/              # Docusaurus docs (developer-guide/ holds the long-form area docs)
+├── website/              # Docusaurus docs (long form in developer-guide/)
 └── tests/                # Pytest suite, mirrors the source tree
 ```
 
-**User state:** `~/.hermes/config.yaml` (settings), `.env` (secrets only), `logs/` (`hermes logs`);
-all profile-aware via `get_hermes_home()`.
+**User state:** `~/.hermes/config.yaml`, `.env` (secrets only), `logs/`; all profile-aware via
+`get_hermes_home()`.
 
 ### Facade + siblings layout
 
@@ -144,6 +144,9 @@ Every former god file is a **facade** (public entry points + the names other pac
   change-detectors or source-reading tests; host-specific behaviour is tested on that host with
   `@pytest.mark.platforms(...)`, never by faking `sys.platform`; tests never write to `~/.hermes/`.
   Everything else: `tests/AGENTS.md`.
+- **Secrets only via a secure prompt, never chat:** never ask for, type into a page, or accept a
+  password, key or one-time code; the masked prompt stores it in the profile `.env`, not the
+  model. Detail: `SECURITY.md` §2.3.
 
 ## Routing Table — working in X → read X/AGENTS.md
 
@@ -166,4 +169,4 @@ Every former god file is a **facade** (public entry points + the names other pac
 | `hermes_platform/` | `hermes_platform/AGENTS.md` | host facts, resolvers |
 
 Long-form background: `website/docs/developer-guide/`. Workflow rules (PR/issue/review/salvage
-process) live in the `hermes-agent-dev` skill, not here.
+process) live in the `hermes-agent-dev` skill.

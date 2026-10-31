@@ -134,6 +134,19 @@ in-memory credentials. The mitigation against a compromised
 in-process component is operator review before install (§2.4,
 §2.5), not environment scrubbing.
 
+**How a credential is collected is part of the policy.** An
+interactive agent never requests a password, API key, token or
+one-time code in chat, never types one into a page, and never
+accepts one the operator pastes: the value must not reach the model
+or the transcript. It is collected through a masked prompt — a
+skill's `required_environment_variables` capture panel, `hermes
+secrets …`, or the sudo password prompt
+(`tools/terminal_tool_sudo.py`) — which stores it in the profile
+`.env` via `save_env_value_secure` and returns only success or
+failure. Where the surface has no secure prompt, the agent reports
+`GATEWAY_SECRET_CAPTURE_UNSUPPORTED_MESSAGE` and the operator adds
+the value to `.env` themselves.
+
 ### 2.4 In-Process Heuristics
 
 The following components screen or warn about LLM behavior. They
